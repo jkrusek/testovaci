@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Sledování kontrakcí</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+    .app{max-width:480px;margin:0 auto;padding:1.5rem 1rem;background:#ffffff;color:#222222;min-height:100vh;}
+    .dark-toggle{display:flex;justify-content:flex-end;margin-bottom:1rem;}
+    .header{text-align:center;margin-bottom:2rem;}
+    .header h1{font-size:22px;font-weight:500;}
+    .header p{font-size:14px;margin-top:4px;}
+    .metrics{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:1.5rem;}
+    .metric{border-radius:8px;padding:12px;text-align:center;}
+    .metric-label{font-size:12px;margin-bottom:4px;}
+    .metric-value{font-size:22px;font-weight:500;font-variant-numeric:tabular-nums;}
+    .btn-wrap{display:flex;justify-content:center;margin-bottom:1.5rem;}
+    .btn-main{width:200px;height:200px;font-size:18px;font-weight:500;border-radius:50%;display:flex;align-items:center;justify-content:center;text-align:center;padding:1rem;line-height:1.4;cursor:pointer;}
+    .section-title{font-size:15px;font-weight:500;margin-bottom:10px;}
+    .history-item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;}
+    .history-item:last-child{border-bottom:none!important;}
+    .history-num{font-size:13px;width:24px;}
+    .history-data{flex:1;}
+    .history-time{font-size:14px;}
+    .history-detail{font-size:12px;margin-top:2px;}
+    .history-dur{font-size:14px;font-weight:500;text-align:right;}
+    .alert{border-radius:12px;padding:1rem 1.25rem;margin-bottom:1.5rem;display:none;}
+    .alert.show{display:block;}
+    .alert-warning{background:#FAEEDA;border:1px solid #EF9F27;}
+    .alert-warning p{color:#633806;font-size:15px;font-weight:500;}
+    .alert-warning span{color:#854F0B;font-size:13px;}
+    .alert-ok{background:#EAF3DE;border:1px solid #639922;}
+    .alert-ok p{color:#173404;font-size:15px;font-weight:500;}
+    .alert-ok span{color:#3B6D11;font-size:13px;}
+  </style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="dark-toggle">
+    <button id="dark-btn" onclick="toggleDark()" style="font-size:13px;padding:6px 14px;border-radius:8px;border:1px solid #ccc;background:#ffffff;color:#222;cursor:pointer;">Tmavý režim</button>
+  </div>
+  <div class="header">
+    <h1>Sledování kontrakcí</h1>
+    <p id="header-p" style="color:#777;">Zmáčkni tlačítko při začátku a konci kontrakce</p>
+  </div>
+  <div class="metrics">
+    <div class="metric" id="m1" style="background:#f5f5f5;border:1px solid #e0e0e0;">
+      <div class="metric-label" id="ml1" style="color:#777;">Délka</div>
+      <div class="metric-value" id="m-delka">--</div>
+    </div>
+    <div class="metric" id="m2" style="background:#f5f5f5;border:1px solid #e0e0e0;">
+      <div class="metric-label" id="ml2" style="color:#777;">Interval</div>
+      <div class="metric-value" id="m-interval">--</div>
+    </div>
+    <div class="metric" id="m3" style="background:#f5f5f5;border:1px solid #e0e0e0;">
+      <div class="metric-label" id="ml3" style="color:#777;">Počet</div>
+      <div class="metric-value" id="m-pocet">0</div>
+    </div>
+  </div>
+  <div class="btn-wrap">
+    <button class="btn-main" id="btn-kontrakce" onclick="toggleKontrakce()" style="background:#ffffff;border:2px solid #cccccc;color:#222222;">Začátek<br>kontrakce</button>
+  </div>
+  <button id="btn-reset" onclick="resetAll()" style="width:100%;padding:10px;font-size:14px;border-radius:8px;border:1px solid #ddd;background:#ffffff;color:#888;cursor:pointer;margin-bottom:1.5rem;">Smazat historii</button>
+
+  <div class="alert alert-warning" id="alert-porodnice">
+    <p>Je čas jet do porodnice!</p>
+    <span id="alert-porodnice-text"></span>
+  </div>
+  <div class="alert alert-ok" id="alert-ok">
+    <p>Kontrakce zatím pravidelné</p>
+    <span id="alert-ok-text"></span>
+  </div>
+
+  <div class="section-title" id="history-title">Historie kontrakcí</div>
+  <div id="history-list"><div style="font-size:14px;color:#999;text-align:center;padding:1.5rem;">Zatím žádné kontrakce</div></div>
+</div>
+
+<script>
+let dark=false,aktivni=false,zacatek=null,konecPosledni=null,historie=[],timer=null;
+
+function pad(n){return String(Math.floor(n)).padStart(2,'0');}
+function formatSec(s){s=Math.round(s);return s<60?s+'s':pad(s/60)+':'+pad(s%60);}
+function formatCas(ts){let d=new Date(ts);return d.getHours()+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());}
+
+function applyTheme(){
+  let app=document.getElementById('app');
+  let btn=document.getElementById('btn-kontrakce');
+  let reset=document.getElementById('btn-reset');
+  let darkBtn=document.getElementById('dark-btn');
+  if(dark){
+    app.style.background='#111111';app.style.color='#f0f0f0';
+    document.getElementById('header-p').style.color='#aaaaaa';
+    ['m1','m2','m3'].forEach(id=>{document.getElementById(id).style.background='#1e1e1e';document.getElementById(id).style.border='1px solid #333';});
+    ['ml1','ml2','ml3'].forEach(id=>document.getElementById(id).style.color='#aaa');
+    if(!aktivni){btn.style.background='#1e1e1e';btn.style.border='2px solid #888888';btn.style.color='#f0f0f0';}
+    reset.style.background='#1e1e1e';reset.style.border='1px solid #333333';reset.style.color='#aaaaaa';
+    darkBtn.style.background='#1e1e1e';darkBtn.style.border='1px solid #888888';darkBtn.style.color='#f0f0f0';
+    darkBtn.textContent='Světlý režim';
+    document.getElementById('history-title').style.color='#f0f0f0';
+  } else {
+    app.style.background='#ffffff';app.style.color='#222222';
+    document.getElementById('header-p').style.color='#777777';
+    ['m1','m2','m3'].forEach(id=>{document.getElementById(id).style.background='#f5f5f5';document.getElementById(id).style.border='1px solid #e0e0e0';});
+    ['ml1','ml2','ml3'].forEach(id=>document.getElementById(id).style.color='#777');
+    if(!aktivni){btn.style.background='#ffffff';btn.style.border='2px solid #cccccc';btn.style.color='#222222';}
+    reset.style.background='#ffffff';reset.style.border='1px solid #dddddd';reset.style.color='#888888';
+    darkBtn.style.background='#ffffff';darkBtn.style.border='1px solid #cccccc';darkBtn.style.color='#222222';
+    darkBtn.textContent='Tmavý režim';
+    document.getElementById('history-title').style.color='#222222';
+  }
+  renderHistorie();
+}
+
+function toggleDark(){dark=!dark;applyTheme();}
+
+function toggleKontrakce(){
+  let btn=document.getElementById('btn-kontrakce');
+  if(!aktivni){
+    aktivni=true;zacatek=Date.now();
+    btn.innerHTML='Konec<br>kontrakce';
+    btn.style.background='#26215C';btn.style.border='2px solid #AFA9EC';btn.style.color='#CECBF6';
+    timer=setInterval(()=>{document.getElementById('m-delka').textContent=formatSec((Date.now()-zacatek)/1000);},200);
+  } else {
+    clearInterval(timer);aktivni=false;
+    btn.innerHTML='Začátek<br>kontrakce';
+    let konecTs=Date.now();
+    let delka=(konecTs-zacatek)/1000;
+    let interval=konecPosledni?(zacatek-konecPosledni)/1000:null;
+    konecPosledni=konecTs;
+    historie.unshift({zacatek,konec:konecTs,delka,interval});
+    document.getElementById('m-delka').textContent=formatSec(delka);
+    document.getElementById('m-interval').textContent=interval?formatSec(interval):'--';
+    document.getElementById('m-pocet').textContent=historie.length;
+    applyTheme();vyhodnotit();
+  }
+}
+
+function vyhodnotit(){
+  let alP=document.getElementById('alert-porodnice');
+  let alO=document.getElementById('alert-ok');
+  alP.classList.remove('show');alO.classList.remove('show');
+  if(historie.length<3)return;
+  let platne=historie.filter(k=>k.interval!==null&&k.interval<=300&&k.delka>=60);
+  if(platne.length<3)return;
+  let nejnovejsi=platne[0].zacatek;
+  let nejstarsi=platne[platne.length-1].zacatek;
+  let trvani=(nejnovejsi-nejstarsi)/1000;
+  let avgI=platne.filter(k=>k.interval).reduce((a,b)=>a+b.interval,0)/platne.filter(k=>k.interval).length;
+  let avgD=platne.reduce((a,b)=>a+b.delka,0)/platne.length;
+  if(trvani>=3600){
+    document.getElementById('alert-porodnice-text').textContent='Kontrakce každých '+formatSec(avgI)+', délka '+formatSec(avgD)+', trvá to už '+formatSec(trvani)+'. Pravidlo 5-1-1 splněno.';
+    alP.classList.add('show');
+  } else {
+    let zbyvaSec=3600-trvani;
+    document.getElementById('alert-ok-text').textContent='Interval: '+formatSec(avgI)+', délka: '+formatSec(avgD)+'. Do hodiny zbývá '+formatSec(zbyvaSec)+'.';
+    alO.classList.add('show');
+  }
+}
+
+function renderHistorie(){
+  let el=document.getElementById('history-list');
+  let borderColor=dark?'#2a2a2a':'#eeeeee';
+  let textColor=dark?'#f0f0f0':'#222222';
+  let mutedColor=dark?'#aaaaaa':'#999999';
+  if(historie.length===0){el.innerHTML=`<div style="font-size:14px;color:${mutedColor};text-align:center;padding:1.5rem;">Zatím žádné kontrakce</div>`;return;}
+  el.innerHTML=historie.map((k,i)=>`
+    <div class="history-item" style="border-bottom:1px solid ${borderColor};">
+      <div class="history-num" style="color:${mutedColor};">${historie.length-i}.</div>
+      <div class="history-data">
+        <div class="history-time" style="color:${textColor};">${formatCas(k.zacatek)} – ${formatCas(k.konec)}</div>
+        <div class="history-detail" style="color:${mutedColor};">interval: ${k.interval?formatSec(k.interval):'–'}</div>
+      </div>
+      <div class="history-dur" style="color:${textColor};">${formatSec(k.delka)}</div>
+    </div>`).join('');
+}
+
+function resetAll(){
+  clearInterval(timer);
+  aktivni=false;zacatek=null;konecPosledni=null;historie=[];
+  document.getElementById('m-delka').textContent='--';
+  document.getElementById('m-interval').textContent='--';
+  document.getElementById('m-pocet').textContent='0';
+  document.getElementById('alert-porodnice').classList.remove('show');
+  document.getElementById('alert-ok').classList.remove('show');
+  applyTheme();
+}
+
+// Zabraň zhasnutí obrazovky
+if('wakeLock' in navigator){
+  let wakeLock=null;
+  async function requestWakeLock(){try{wakeLock=await navigator.wakeLock.request('screen');}catch(e){}}
+  requestWakeLock();
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')requestWakeLock();});
+}
+</script>
+</body>
+</html>
